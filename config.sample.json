@@ -1,0 +1,7 @@
+{
+  "lockPhysical": true,
+  "blockUdp": true,
+  "blockIpv6": true,
+  "watchIntervalSeconds": 3,
+  "targets": []
+}
