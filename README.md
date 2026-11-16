@@ -1,5 +1,7 @@
 # AI Egress Guard · AI 客户端出网保险
 
+> 当前版本：**v1.0.0** · [CHANGELOG](CHANGELOG.md)
+
 让 ChatGPT / Claude / Gemini 桌面客户端**只能走 TUN 代理**。任何绕过代理的直连——不管是客户端自己偷跑，还是 IPv6 旁路、WebRTC 打洞——都会被 Windows 内核直接丢弃。
 
 > **不是“发现直连再断网”，而是“直连这条路根本不存在”。**

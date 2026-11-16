@@ -57,6 +57,7 @@ $ErrorActionPreference = 'Stop'
 # ---------------------------------------------------------------- 全局常量
 
 $script:Group = 'AIGuard'
+$script:Version = '1.0.0'
 if ($PSScriptRoot) {
     $script:Root = $PSScriptRoot
 } else {
@@ -766,6 +767,7 @@ function Invoke-Status {
     $rules = @(Get-NetFirewallRule -Group $script:Group -ErrorAction SilentlyContinue)
 
     Write-Host ''
+    Write-Host ('AI Egress Guard v{0}' -f $script:Version) -ForegroundColor DarkGray
     Write-Host ('TUN       : {0}' -f $(if ($tun.Count -gt 0) { (($tun | ForEach-Object { $_.Name }) -join ', ') } else { '未检测到' })) -ForegroundColor $(if ($tun.Count -gt 0) { 'Green' } else { 'Red' })
     Write-Host ('目标客户端: {0}' -f $(if ($targets.Count -gt 0) { (($targets | ForEach-Object { $_.name }) -join ', ') } else { '无' })) -ForegroundColor Gray
     Write-Host ('防火墙规则: {0} 条' -f $rules.Count) -ForegroundColor $(if ($rules.Count -gt 0) { 'Green' } else { 'Yellow' })
@@ -783,7 +785,7 @@ function Invoke-Status {
 
 function Show-Help {
     Write-Host ''
-    Write-Host 'AI Egress Guard — 让 AI 客户端只能走 TUN 代理' -ForegroundColor Cyan
+    Write-Host ('AI Egress Guard v{0} — 让 AI 客户端只能走 TUN 代理' -f $script:Version) -ForegroundColor Cyan
     Write-Host ''
     Write-Host '  用法: .\aiguard.ps1 <命令> [-AllowVoice] [-DryRun] [-Interval 秒]'
     Write-Host ''
