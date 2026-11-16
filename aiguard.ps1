@@ -482,7 +482,8 @@ function Get-GuardRulePlan {
             if ($Config.blockIpv6) {
                 $extra = @{}
                 foreach ($k in $scope.params.Keys) { $extra[$k] = $scope.params[$k] }
-                $extra['RemoteAddress'] = '::/0'
+                # 防火墙不接受 Protocol=Any 时的 "::/0"，用两段 /1 覆盖整个 IPv6 空间
+                $extra['RemoteAddress'] = @('::/1', '8000::/1')
                 [void]$plan.Add([pscustomobject]@{ Target = $t; Suffix = ('{0}-ipv6' -f $tag); Extra = $extra })
             }
         }
@@ -625,9 +626,9 @@ function Invoke-Lock {
     $state | ConvertTo-Json -Depth 5 | Set-Content -Path $script:StateFile -Encoding UTF8
 
     Write-Host ''
-    Write-Host ('已上锁：{0} 条规则。' -f $created) -ForegroundColor Green
+    Write-Host ('已上锁：{0} 条规则成功。' -f $created) -ForegroundColor Green
     if ($failed.Count -gt 0) {
-        Write-Host '以下规则创建失败：' -ForegroundColor Red
+        Write-Host ('{0} 条规则创建失败：' -f $failed.Count) -ForegroundColor Red
         $failed | ForEach-Object { Write-Host ('  ' + $_) -ForegroundColor Red }
     }
     Write-Host '下一步：.\aiguard.ps1 test' -ForegroundColor DarkGray
