@@ -1,6 +1,6 @@
 # AI Egress Guard · AI 客户端出网保险
 
-> 当前版本：**v1.0.0** · [CHANGELOG](CHANGELOG.md)
+> 当前版本：**v1.0.1** · [CHANGELOG](CHANGELOG.md)
 
 让 ChatGPT / Claude / Gemini 桌面客户端**只能走 TUN 代理**。任何绕过代理的直连——不管是客户端自己偷跑，还是 IPv6 旁路、WebRTC 打洞——都会被 Windows 内核直接丢弃。
 
@@ -59,7 +59,7 @@ TUN 网卡不是通过名字写死的，而是靠 **`0.0.0.0/1` + `128.0.0.0/1` 
 
 | 客户端 | 形态 | 支持 |
 |---|---|---|
-| ChatGPT（微软商店版） | MSIX 包 `OpenAI.Codex` | ✅ 包名规则 + 路径规则双保险，抗版本更新 |
+| ChatGPT（微软商店版） | MSIX 包 `OpenAI.Codex`（runFullTrust） | ✅ 按 exe 路径建规则，建完自动校验作用域 |
 | Claude Desktop | Electron，`%LOCALAPPDATA%\AnthropicClaude\app-*` | ✅ 自动找最新版本目录 |
 | Gemini Desktop | 官方暂无 Windows 客户端 | ✅ 第三方壳可写进 `config.json` |
 | 自定义客户端 | 任意 exe / MSIX | ✅ `config.json` 里加一条即可 |
@@ -91,9 +91,10 @@ TUN 网卡不是通过名字写死的，而是靠 **`0.0.0.0/1` + `128.0.0.0/1` 
 
 在本机（Windows 11 build 26200 + v2rayN TUN，TUN 网卡 `172.19.0.0/24`）做过真机验证：
 
-- `lock` 创建 6 条规则（3 条按 MSIX 包名 + 3 条按 exe 路径）全部成功，`unlock` 清理干净
-- ChatGPT 客户端的所有进程都是 `ChatGPT.exe`，不是 WebView2 子进程，路径规则能覆盖
-- 踩到一个防火墙 API 的坑：`-Protocol Any` 时 `-RemoteAddress '::/0'` 会被判“地址前缀无效”，所以 IPv6 用 `::/1` + `8000::/1` 两段覆盖整个地址空间
+- `lock` 创建 3 条规则（全部按 exe 路径）成功，`unlock` 清理干净
+- ChatGPT 客户端的所有进程都是 `ChatGPT.exe`，`runFullTrust`，路径规则能覆盖
+- 1.0.1 修掉一个**严重 bug**：`-PackageFamilyName` 在 build 26200 上会静默生成**没有作用域**的规则（`Program: Any`），等于"全系统禁止走物理网卡 / 禁止 UDP"，会误伤微信等其它程序。现在只按 exe 路径建规则，并且建完立即校验作用域，校验不过就自动删除
+- 踩到一个防火墙 API 的坑：`-Protocol Any` 时 `-RemoteAddress '::/0'` 会被判"地址前缀无效"，所以 IPv6 用 `::/1` + `8000::/1` 两段覆盖整个地址空间
 
 ---
 

@@ -57,7 +57,7 @@ $ErrorActionPreference = 'Stop'
 # ---------------------------------------------------------------- 全局常量
 
 $script:Group = 'AIGuard'
-$script:Version = '1.0.0'
+$script:Version = '1.0.1'
 if ($PSScriptRoot) {
     $script:Root = $PSScriptRoot
 } else {
@@ -450,6 +450,19 @@ function New-GuardRule {
         return
     }
     New-NetFirewallRule @params | Out-Null
+
+    # 保险：建完必须校验作用域。作用域为空 = 全系统规则，会误伤别的程序，立刻删掉。
+    $rule = Get-NetFirewallRule -DisplayName $display -ErrorAction SilentlyContinue | Select-Object -First 1
+    $filter = $rule | Get-NetFirewallApplicationFilter -ErrorAction SilentlyContinue
+    $hasScope = $false
+    if ($filter) {
+        if ($filter.Package) { $hasScope = $true }
+        if ($filter.Program -and $filter.Program -ne 'Any') { $hasScope = $true }
+    }
+    if (-not $hasScope) {
+        $rule | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+        throw ('规则 "{0}" 没有作用域（会变成全系统规则），已自动删除' -f $display)
+    }
 }
 
 function Get-GuardRulePlan {
@@ -457,36 +470,32 @@ function Get-GuardRulePlan {
 
     $plan = New-Object System.Collections.ArrayList
     foreach ($t in $Targets) {
-        $scopes = @()
-        if ($t.package) { $scopes += @{ kind = 'pkg'; params = @{ PackageFamilyName = $t.package } } }
-        if ($t.exe)     { $scopes += @{ kind = 'exe'; params = @{ Program = $t.exe } } }
+        if (-not $t.exe) { continue }
 
-        foreach ($scope in $scopes) {
-            $tag = $(if ($scope.kind -eq 'pkg') { 'pkg' } else { 'exe' })
+        if ($Config.lockPhysical) {
+            [void]$plan.Add([pscustomobject]@{
+                Target = $t
+                Suffix = 'physical'
+                Extra  = @{ Program = $t.exe; InterfaceAlias = $Aliases }
+            })
+        }
 
-            if ($Config.lockPhysical) {
-                $extra = @{}
-                foreach ($k in $scope.params.Keys) { $extra[$k] = $scope.params[$k] }
-                $extra['InterfaceAlias'] = $Aliases
-                [void]$plan.Add([pscustomobject]@{ Target = $t; Suffix = ('{0}-physical' -f $tag); Extra = $extra })
-            }
+        if ($Config.blockUdp) {
+            $extra = @{ Program = $t.exe; Protocol = 'UDP' }
+            if ($AllowVoice) { $extra['InterfaceAlias'] = $Aliases }
+            [void]$plan.Add([pscustomobject]@{
+                Target = $t
+                Suffix = $(if ($AllowVoice) { 'udp-physical' } else { 'udp' })
+                Extra  = $extra
+            })
+        }
 
-            if ($Config.blockUdp) {
-                $extra = @{}
-                foreach ($k in $scope.params.Keys) { $extra[$k] = $scope.params[$k] }
-                $extra['Protocol'] = 'UDP'
-                if ($AllowVoice) { $extra['InterfaceAlias'] = $Aliases }
-                $suffix = $(if ($AllowVoice) { '{0}-udp-physical' -f $tag } else { '{0}-udp' -f $tag })
-                [void]$plan.Add([pscustomobject]@{ Target = $t; Suffix = $suffix; Extra = $extra })
-            }
-
-            if ($Config.blockIpv6) {
-                $extra = @{}
-                foreach ($k in $scope.params.Keys) { $extra[$k] = $scope.params[$k] }
-                # 防火墙不接受 Protocol=Any 时的 "::/0"，用两段 /1 覆盖整个 IPv6 空间
-                $extra['RemoteAddress'] = @('::/1', '8000::/1')
-                [void]$plan.Add([pscustomobject]@{ Target = $t; Suffix = ('{0}-ipv6' -f $tag); Extra = $extra })
-            }
+        if ($Config.blockIpv6) {
+            [void]$plan.Add([pscustomobject]@{
+                Target = $t
+                Suffix = 'ipv6'
+                Extra  = @{ Program = $t.exe; RemoteAddress = @('::/1', '8000::/1') }
+            })
         }
     }
     return $plan.ToArray()
@@ -565,9 +574,14 @@ function Invoke-Lock {
     }
 
     $config = Get-Config
-    $targets = @(Get-TargetList -Config $config | Where-Object { $_.exe -or $_.package })
+    $allTargets = @(Get-TargetList -Config $config)
+    $targets = @($allTargets | Where-Object { $_.exe })
+    $skipped = @($allTargets | Where-Object { -not $_.exe })
+    if ($skipped.Count -gt 0) {
+        Write-Host ('跳过没有 exe 路径的客户端：{0}' -f (($skipped | ForEach-Object { $_.name }) -join ', ')) -ForegroundColor Yellow
+    }
     if ($targets.Count -eq 0) {
-        throw '没找到任何目标客户端。先跑 probe。'
+        throw '没找到任何目标客户端（需要 exe 路径）。先跑 probe。'
     }
 
     $tun = @(Get-TunInterfaces)
@@ -727,6 +741,14 @@ function Invoke-Test {
     } else {
         Write-Host ('  [OK] {0} 条规则生效' -f $rules.Count) -ForegroundColor Green
         $rules | Sort-Object DisplayName | ForEach-Object { Write-Host ('       {0}' -f $_.DisplayName) -ForegroundColor DarkGray }
+
+        $unscoped = @($rules | Where-Object {
+            $f = ($_ | Get-NetFirewallApplicationFilter -ErrorAction SilentlyContinue)
+            (-not $f.Package) -and ((-not $f.Program) -or ($f.Program -eq 'Any'))
+        })
+        if ($unscoped.Count -gt 0) {
+            Write-Host ('  [X] {0} 条规则没有作用域，会误伤全系统 —— 建议 unlock 后重跑 lock' -f $unscoped.Count) -ForegroundColor Red
+        }
     }
 
     Write-Head '3. 出口 IP'
